@@ -123,7 +123,10 @@ export function stringify(
       }
 
       if (typeof item !== 'undefined' && typeof item !== 'function') {
-        str += stringifyValue(item, childIndent)
+        const serialized = stringifyValue(item, childIndent)
+        // Values without a JSON representation (a symbol, or an object whose
+        // toJSON() returns undefined) become null inside an array.
+        str += serialized === undefined ? 'null' : serialized
       } else {
         str += 'null'
       }
@@ -145,10 +148,14 @@ export function stringify(
     indent: string | undefined
   ): string | undefined {
     if (typeof object.toJSON === 'function') {
-      return stringify(object.toJSON(), replacer, space, undefined)
+      return stringify(object.toJSON(), replacer, space, numberStringifiers)
     }
 
-    const keys: string[] = Array.isArray(replacer) ? replacer.map(String) : Object.keys(object)
+    // A replacer array is a property whitelist: duplicates must not produce
+    // duplicate keys in the output.
+    const keys: string[] = Array.isArray(replacer)
+      ? [...new Set(replacer.map(String))]
+      : Object.keys(object)
 
     if (keys.length === 0) {
       return '{}'
@@ -163,6 +170,13 @@ export function stringify(
         typeof replacer === 'function' ? replacer.call(object, key, object[key]) : object[key]
 
       if (includeProperty(key, value)) {
+        const serialized = stringifyValue(value, childIndent)
+        // Like JSON.stringify, omit properties that have no JSON
+        // representation (e.g. an object whose toJSON() returns undefined).
+        if (serialized === undefined) {
+          continue
+        }
+
         if (first) {
           first = false
         } else {
@@ -172,7 +186,7 @@ export function stringify(
         const keyStr = JSON.stringify(key)
         str += resolvedSpace ? `${childIndent + keyStr}: ` : `${keyStr}:`
 
-        str += stringifyValue(value, childIndent)
+        str += serialized
       }
     }
 
@@ -189,16 +203,24 @@ export function stringify(
 }
 
 /**
+ * The number of spaces or characters a space is capped to, like JSON.stringify does
+ */
+const MAX_SPACE_LENGTH = 10
+
+/**
  * Resolve a JSON stringify space:
  * replace a number with a string containing that number of spaces
  */
 function resolveSpace(space: number | string | undefined): string | undefined {
   if (typeof space === 'number') {
-    return ' '.repeat(space)
+    // same rules as JSON.stringify: truncate towards zero, cap at 10,
+    // and treat anything below 1 (including NaN and negatives) as no indent
+    const count = Math.min(Math.trunc(space), MAX_SPACE_LENGTH)
+    return count >= 1 ? ' '.repeat(count) : undefined
   }
 
   if (typeof space === 'string' && space !== '') {
-    return space
+    return space.slice(0, MAX_SPACE_LENGTH)
   }
 
   return undefined
