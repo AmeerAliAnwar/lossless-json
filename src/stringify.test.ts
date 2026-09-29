@@ -353,3 +353,28 @@ test('stringify with space capped at 10 and values below 1', () => {
   expect(stringify(json, null, longIndent)).toBe('{\n' + 'abcdefghij' + '"a": 1\n' + '}')
 })
 
+test('stringify should omit object properties whose toJSON returns undefined', () => {
+  const json = { a: 1, b: { toJSON: () => undefined }, c: 2 }
+  expect(stringify(json)).toBe('{"a":1,"c":2}')
+  expect(stringify(json)).toBe(JSON.stringify(json))
+})
+
+test('stringify should serialize array elements without JSON representation as null', () => {
+  const json = [Symbol('test'), { toJSON: () => undefined }]
+  expect(stringify(json)).toBe('[null,null]')
+  expect(stringify(json)).toBe(JSON.stringify(json))
+})
+
+test('stringify should forward numberStringifiers when object defines toJSON', () => {
+  const decimalStringifier: NumberStringifier = {
+    test: (value: unknown) => Decimal.isDecimal(value),
+    stringify: (value: unknown) => (value as Decimal).toString()
+  }
+  const obj = {
+    toJSON: () => ({ num: new Decimal('123456789123456789123456789') })
+  }
+  expect(stringify(obj, undefined, undefined, [decimalStringifier])).toBe(
+    '{"num":1.23456789123456789123456789e+26}'
+  )
+})
+
